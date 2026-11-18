@@ -80,6 +80,9 @@ struct LLMError: LocalizedError {
         guard first.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return first }
         DebugLog.write("llm: empty reply (finish \(first.finishReason ?? "-"), reasoning \(first.reasoningChars) chars); asking once more")
         var again = try await once(system: system, text: text, images: images, maxTokens: maxTokens, temperature: temperature)
+        guard !again.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw LLMError(message: "LLM returned an empty reply twice; check the model and retry.")
+        }
         again.retried = true
         again.total += first.total
         return again
@@ -177,6 +180,11 @@ struct LLMError: LocalizedError {
             let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
             if payload == "[DONE]" { break }
             guard let json = (try? JSONSerialization.jsonObject(with: Data(payload.utf8))) as? [String: Any] else { continue }
+            if let failure = json["error"] {
+                let message = (failure as? [String: Any])?["message"] as? String
+                    ?? failure as? String ?? "the endpoint reported a streamed error"
+                throw LLMError(message: "LLM stream: \(message.prefix(300))")
+            }
             let choice = (json["choices"] as? [[String: Any]])?.first
             let delta = choice?["delta"] as? [String: Any]
             Self.note(json, choice, into: &result)

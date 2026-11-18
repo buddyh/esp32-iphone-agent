@@ -125,6 +125,37 @@ final class StubProtocol: URLProtocol {
         XCTAssertEqual(reply.usage["completion_tokens"], 9)
     }
 
+    func testStreamErrorRejectsPartialAnswerWithoutRetry() async {
+        let llm = client("qwen")
+        StubProtocol.seen = []
+        StubProtocol.respond = { _ in
+            (200, "text/event-stream",
+             "data: {\"choices\": [{\"delta\": {\"content\": \"DO: tap\"}}]}\n\n"
+             + "data: {\"error\": {\"message\": \"Codex timed out; retry the request.\"}}\n\n"
+             + "data: [DONE]\n\n")
+        }
+        do {
+            _ = try await llm.chat(system: "sys", text: "hi", image: nil)
+            XCTFail("a failed stream must not return a partial action")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("Codex timed out"))
+        }
+        XCTAssertEqual(StubProtocol.seen.count, 1)
+    }
+
+    func testRepeatedEmptyReplyThrowsAfterOneRetry() async {
+        let llm = client("qwen")
+        StubProtocol.seen = []
+        StubProtocol.respond = { _ in (200, "text/event-stream", "data: [DONE]\n\n") }
+        do {
+            _ = try await llm.chat(system: "sys", text: "hi", image: nil)
+            XCTFail("an empty reply must not pass Test Connection")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("empty"))
+        }
+        XCTAssertEqual(StubProtocol.seen.count, 2)
+    }
+
     func testHTTPErrorsAreThrown() async {
         let llm = client("qwen")
         StubProtocol.respond = { _ in (500, "text/plain", "boom") }
