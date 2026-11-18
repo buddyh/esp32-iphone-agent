@@ -174,3 +174,9 @@ WebDriverAgent/XCUITest-based tools such as [mobile-mcp](https://github.com/mobi
 [MIT](LICENSE), except `hardware/hid_bridge/src/airplay/` (ported from UxPlay), which is
 [GPL-3.0](hardware/hid_bridge/src/airplay/LICENSE-GPL.md); the firmware binary that links it is therefore
 distributed under GPL-3.0.
+
+## Optional: use Codex through your Mac
+
+The [Codex app-server bridge](codex_bridge/README.md) lets the existing iPhone app reach a ChatGPT-authenticated Codex CLI through a private HTTPS endpoint. It runs on your computer, keeps authentication there, and translates the app's vision requests into ephemeral app-server turns. It requires no separate OpenAI Platform API key. Model access and limits follow the authenticated account; verify a text and image request before using it to control the phone.
+
+See the [architecture notes](docs/codex-bridge-architecture.md) for the hotspot/cellular route, the firmware's existing home-Wi-Fi support, and the boundaries of alternative capture designs.

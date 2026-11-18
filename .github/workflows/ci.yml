@@ -50,3 +50,16 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check .
       - run: pytest -q
+
+  codex-bridge:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.14"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Bridge protocol and HTTP tests (no model calls)
+        run: python -m unittest discover -s tests -p 'test_bridge*.py' -v
