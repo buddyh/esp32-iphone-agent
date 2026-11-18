@@ -1,10 +1,13 @@
 import asyncio
+import base64
 import json
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from io import BytesIO
 
 import pytest
+from PIL import Image
 
 pytest.importorskip("mcp")
 from mcp import ClientSession, StdioServerParameters  # noqa: E402
@@ -13,11 +16,14 @@ from mcp.client.stdio import stdio_client  # noqa: E402
 
 def test_real_stdio_bridge_returns_images_and_forwards_legacy_actions():
     requests = []
+    encoded = BytesIO()
+    Image.new("RGB", (64, 64), (255, 0, 0)).save(encoded, format="JPEG")
+    jpeg = encoded.getvalue()
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path == "/api/frame.jpg":
-                payload, mime = b"synthetic jpeg", "image/jpeg"
+                payload, mime = jpeg, "image/jpeg"
             else:
                 payload = json.dumps({"agent": {"running": False, "task": "", "steps": []}}).encode()
                 mime = "application/json"
@@ -51,6 +57,10 @@ def test_real_stdio_bridge_returns_images_and_forwards_legacy_actions():
             image = await session.call_tool("iphone_screenshot", {})
             assert not image.isError
             assert image.content[0].type == "image" and image.content[0].mimeType == "image/jpeg"
+            returned = Image.open(BytesIO(base64.b64decode(image.content[0].data)))
+            assert returned.format == "JPEG" and returned.size == (64, 64)
+            red, green, blue = returned.convert("RGB").getpixel((32, 32))
+            assert red > 240 and green < 15 and blue < 15
             for name, arguments in [("iphone_key", {"combo": "cmd+a"}),
                                     ("delegate_task", {"goal": "Open Clock"}), ("stop_task", {})]:
                 assert not (await session.call_tool(name, arguments)).isError
