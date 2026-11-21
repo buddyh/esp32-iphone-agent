@@ -91,6 +91,8 @@ Configuration:
 | `HOST=127.0.0.1` | Keep the HTTP controller on loopback; this is the default. |
 | `PORT=8890` | Local HTTP port. Use the same port in the CLI and MCP configuration. |
 | `UXPLAY_BIN` | Absolute path to a private receiver build; otherwise `uxplay` is located on `PATH`. |
+| `UXPLAY` | Older name for the receiver; a bare command is looked up on `PATH`. `UXPLAY_BIN` wins when both are set. |
+| `MIRROR_STREAM` | Follow a standalone receiver (`python -m hidagent.receiver`, e.g. `127.0.0.1:8891`) instead of running UxPlay here. The receiver and GStreamer checks then run in that receiver, and screen liveness falls back to frame age because its connections are not counted. |
 | `UXPLAY_PORT` | Optional AirPlay base port, such as `35000`. Startup checks the base and next two TCP/UDP ports for conflicts. |
 | `UXPLAY_ARGS` | Optional additional receiver arguments, split without a shell. Set the port with `UXPLAY_PORT`, not `-p` here. |
 | `GST_INSPECT_BIN` | Optional path to `gst-inspect-1.0` if it is outside `PATH`. |
