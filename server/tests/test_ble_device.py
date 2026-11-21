@@ -143,6 +143,7 @@ class BLEDeviceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(command == "release" for _, command in old.writes))
         new = await self.ready(device, links=2)
         new.acknowledge = False
+        device._timeout = lambda _: 5  # only the first command should time out; a slow tick must not fail this one
         command = asyncio.create_task(device.send("click"))
         await new.wrote.wait()
         old.reply(request_id)
