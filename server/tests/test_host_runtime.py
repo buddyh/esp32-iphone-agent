@@ -34,6 +34,7 @@ class CaptureTests(unittest.TestCase):
             screen.start()
         spawn.assert_not_called()
 
+    @unittest.skipIf(os.name == "nt", "POSIX receiver: shebang script, SIGTERM and waitpid")
     def test_owned_receiver_is_killed_reaped_and_thread_joined(self):
         with tempfile.TemporaryDirectory() as temporary:
             executable = Path(temporary) / "receiver"
@@ -64,6 +65,7 @@ class CaptureTests(unittest.TestCase):
                     process.kill()
                     process.wait()
 
+    @unittest.skipIf(os.name == "nt", "Windows cannot count receiver connections, so it uses frame age")
     def test_mac_connection_proof_preserves_still_frame_and_rejects_stale(self):
         screen = Screen()
         screen._proc = SimpleNamespace(pid=12345, poll=lambda: None)
