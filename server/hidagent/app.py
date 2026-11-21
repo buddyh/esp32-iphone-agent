@@ -220,9 +220,20 @@ def _forget_manual(operation: asyncio.Task) -> None:
     cancelled_manual.discard(operation)
 
 
-async def _watch_disconnect(request: Request) -> None:
-    while not await request.is_disconnected():
-        await asyncio.sleep(0.2)
+async def _watch_disconnect(request: Request, finished: asyncio.Event) -> bool:
+    """Return True once the client disconnects; return False once `finished` is set.
+
+    Starlette's is_disconnected() runs inside an anyio cancel scope that can swallow this task's cancellation,
+    so the event, not cancel(), is what reliably ends the watcher.
+    """
+    while not finished.is_set():
+        if await request.is_disconnected():
+            return True
+        try:
+            await asyncio.wait_for(finished.wait(), 0.2)
+        except asyncio.TimeoutError:
+            pass
+    return False
 
 
 async def _release_after(tasks: set[asyncio.Task]) -> None:
@@ -253,11 +264,12 @@ async def run_manual(action: Callable[[], Awaitable[Any]], request: Request | No
         async with manual_lock:
             operation = asyncio.create_task(action())
             manual_operation = operation
-            watcher = asyncio.create_task(_watch_disconnect(request)) if request is not None else None
+            finished = asyncio.Event()
+            watcher = asyncio.create_task(_watch_disconnect(request, finished)) if request is not None else None
             try:
                 if watcher is not None:
                     done, _ = await asyncio.wait({operation, watcher}, return_when=asyncio.FIRST_COMPLETED)
-                    if watcher in done:
+                    if watcher in done and watcher.result():
                         await _stop_disconnected(operation)
                         raise HTTPException(409, "manual action stopped after client disconnect")
                 return await operation
@@ -269,6 +281,7 @@ async def run_manual(action: Callable[[], Awaitable[Any]], request: Request | No
                 raise
             finally:
                 if watcher is not None:
+                    finished.set()
                     watcher.cancel()
                     await asyncio.gather(watcher, return_exceptions=True)
                 if operation.done():
