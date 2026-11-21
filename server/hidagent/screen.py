@@ -107,6 +107,11 @@ class Screen:
             self._extra_args += ["-p", str(port)]
 
     def _check_plugins(self) -> None:
+        """Fail fast on a missing GStreamer element; skip the check where gst-inspect-1.0 is not installed."""
+        if not os.environ.get("GST_INSPECT_BIN") and shutil.which("gst-inspect-1.0") is None:
+            # it ships separately (e.g. gstreamer1.0-tools), so its absence says nothing about the plugins
+            log.warning("gst-inspect-1.0 not found: not checking GStreamer elements (set GST_INSPECT_BIN to check)")
+            return
         inspector = self._executable("GST_INSPECT_BIN", "gst-inspect-1.0")
         sink = "tcpclientsink" if os.name == "nt" else "fdsink"
         for plugin in ("h264parse", "decodebin", "videoconvert", "videorate", "jpegenc", sink):

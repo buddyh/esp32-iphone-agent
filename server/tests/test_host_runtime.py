@@ -26,6 +26,7 @@ class CaptureTests(unittest.TestCase):
         ):
             screen.start()
         with (
+            patch.dict(os.environ, {"GST_INSPECT_BIN": sys.executable}),
             patch.object(Screen, "_executable", return_value=sys.executable),
             patch("hidagent.screen.subprocess.run", return_value=SimpleNamespace(returncode=1)),
             patch("hidagent.screen.subprocess.Popen") as spawn,
@@ -33,6 +34,17 @@ class CaptureTests(unittest.TestCase):
         ):
             screen.start()
         spawn.assert_not_called()
+
+    def test_missing_gst_inspect_skips_the_plugin_check(self):
+        # gst-inspect-1.0 ships separately from the plugins (gstreamer1.0-tools), so it must not block startup
+        environment = {key: value for key, value in os.environ.items() if key != "GST_INSPECT_BIN"}
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch("hidagent.screen.shutil.which", return_value=None),
+            patch("hidagent.screen.subprocess.run") as inspect,
+        ):
+            Screen()._check_plugins()
+        inspect.assert_not_called()
 
     @unittest.skipIf(os.name == "nt", "POSIX receiver: shebang script, SIGTERM and waitpid")
     def test_owned_receiver_is_killed_reaped_and_thread_joined(self):
