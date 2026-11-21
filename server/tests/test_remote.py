@@ -38,6 +38,8 @@ def api(tmp_path, monkeypatch):
     monkeypatch.setattr(module, "device", SimpleNamespace(connected=False))
     monkeypatch.setattr(module, "screen", SimpleNamespace(live=True, frame=b"jpeg", aspect=.46))
     monkeypatch.setattr(module, "manual_lock", asyncio.Lock())
+    monkeypatch.setattr(module, "stop_lock", asyncio.Lock())
+    monkeypatch.setattr(module, "ALLOWED_HOSTS", frozenset({"legacy"}))
     return module, calls
 
 
@@ -121,10 +123,10 @@ def test_direct_action_and_agent_start_cannot_interleave(api, monkeypatch):
             assert not calls
             assert (await client.post("/api/agent/stop")).status_code == 200
             release.set()
-            assert (await pending).status_code == 200
+            assert (await pending).status_code == 409
             assert (await client.post("/api/agent", json={"text": "Open Clock"})).status_code == 200
             assert (await client.post("/api/type", json={"text": "Calendar"})).status_code == 409
-            assert calls == [("tap", .5, .4)]
+            assert calls == []
 
     asyncio.run(scenario())
 

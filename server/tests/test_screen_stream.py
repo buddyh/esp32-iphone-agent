@@ -160,6 +160,7 @@ def fake_uxplay(tmp_path, monkeypatch, code="import time; time.sleep(30)"):
 
 def test_uxplay_s_pid_is_recorded_for_the_server_s_restart(tmp_path, monkeypatch):
     fake_uxplay(tmp_path, monkeypatch)
+    monkeypatch.setattr(Screen, "_check_plugins", lambda self: None)  # no GStreamer needed for a fake UxPlay
     pidfile = tmp_path / "uxplay.pid"
     screen = Screen(pidfile=pidfile)
     screen.start()
@@ -191,8 +192,9 @@ def test_stop_ends_the_follower_thread():
     screen.start()
     conn, _ = srv.accept()
     assert wait_for(lambda: screen._sock is not None)
-    screen.stop()
-    assert wait_for(lambda: not screen._thread.is_alive())
+    thread = screen._thread
+    screen.stop()  # joins the follower before it returns
+    assert not thread.is_alive()
     conn.close()
     srv.close()
 
