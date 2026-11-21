@@ -15,6 +15,26 @@ CMD = "6e400001-a9e8-4b1b-9c39-6d6f8a3c0001"
 REPLY = "6e400001-a9e8-4b1b-9c39-6d6f8a3c0002"
 
 
+async def _bounded(awaitable: Awaitable[Any], timeout: float) -> Any:
+    """Like asyncio.wait_for, but never loses a cancellation of the caller.
+
+    On Python 3.10, wait_for returns the result instead of raising CancelledError when the caller is cancelled
+    in the same loop iteration that the awaited operation finishes, so a cancelled drag would carry on.
+    """
+    inner = asyncio.ensure_future(awaitable)
+    try:
+        done, _ = await asyncio.wait({inner}, timeout=timeout)
+    except asyncio.CancelledError:
+        inner.cancel()
+        raise
+    if not done:
+        inner.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await inner
+        raise asyncio.TimeoutError
+    return inner.result()
+
+
 class BoardSelectionError(DeviceError):
     """Discovery found multiple boards and needs an explicit device address."""
 
@@ -237,8 +257,8 @@ class BLEDevice(Device):
         future = asyncio.get_running_loop().create_future()
         self._pending[request_id] = (client, future)
         try:
-            await asyncio.wait_for(client.write_gatt_char(CMD, payload, response=True), self.write_timeout)
-            reply = await asyncio.wait_for(future, self._timeout(command))
+            await _bounded(client.write_gatt_char(CMD, payload, response=True), self.write_timeout)
+            reply = await _bounded(future, self._timeout(command))
         except asyncio.CancelledError:
             self._pending.pop(request_id, None)
             future.cancel()
