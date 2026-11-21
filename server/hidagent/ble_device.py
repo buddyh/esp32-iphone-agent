@@ -30,6 +30,8 @@ async def _bounded(awaitable: Awaitable[Any], timeout: float) -> Any:
     if not done:
         inner.cancel()
         await asyncio.wait({inner})  # unlike awaiting it, this raises only if the caller is cancelled
+        if not inner.cancelled():
+            inner.exception()  # retrieved, so asyncio does not log it later; the timeout is what callers see
         raise asyncio.TimeoutError
     return inner.result()
 
