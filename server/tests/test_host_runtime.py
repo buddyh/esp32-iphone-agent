@@ -231,6 +231,7 @@ class HostAPITests(unittest.TestCase):
         async def scenario():
             with (
                 patch.object(self.module, "screen", screen),
+                patch.dict(os.environ, {"GST_INSPECT_BIN": sys.executable}),  # the check runs even without GStreamer
                 patch.object(Screen, "_executable", return_value=sys.executable),
                 patch("hidagent.screen.subprocess.run", side_effect=inspect),
                 patch("hidagent.screen.subprocess.Popen") as spawn,
