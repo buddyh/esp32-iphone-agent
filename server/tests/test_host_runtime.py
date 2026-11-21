@@ -52,7 +52,7 @@ class CaptureTests(unittest.TestCase):
             process, thread = screen._proc, screen._thread
             try:
                 started = time.monotonic()
-                asyncio.run(screen.stop())
+                screen.stop()
                 self.assertLess(time.monotonic() - started, 3)
                 self.assertIsNotNone(process.poll())
                 self.assertFalse(thread.is_alive())
@@ -168,7 +168,7 @@ class HostAPITests(unittest.TestCase):
                 calls.append("screen-stopped")
 
             device = SimpleNamespace(start=start, close=close, keep_awake=awake, connected=False)
-            screen = SimpleNamespace(start=lambda: calls.append("screen-started"), stop=stop)
+            screen = SimpleNamespace(start=lambda: calls.append("screen-started"), aclose=stop)
             with (
                 patch.object(self.module, "TRANSPORT", "ble"),
                 patch.object(self.module, "device", device),

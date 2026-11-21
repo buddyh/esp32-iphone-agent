@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import unicodedata
 from collections.abc import Awaitable, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
@@ -43,7 +44,10 @@ def create_device(transport: str):
 
 
 device = create_device(TRANSPORT)
-screen = Screen(os.environ.get("AIRPLAY_NAME", "iPhone Agent"))
+# MIRROR_STREAM=127.0.0.1:8891 follows a standalone receiver (python -m hidagent.receiver) instead of running
+# UxPlay here, so restarting the server keeps the phone's Screen Mirroring session
+screen = Screen(os.environ.get("AIRPLAY_NAME", "iPhone Agent"), stream=os.environ.get("MIRROR_STREAM"),
+                pidfile=DATA_DIR / "uxplay.pid")
 phone = Phone(device, DATA_DIR / "calibration.json", screen)
 agent = Agent(phone, screen, LLM.from_env("ACTOR"), LLM.from_env("PLANNER"),
               Trace(DATA_DIR / "traces" if DEBUG else None))
@@ -53,7 +57,7 @@ agent = Agent(phone, screen, LLM.from_env("ACTOR"), LLM.from_env("PLANNER"),
 async def lifespan(_):
     """Start capture and one board transport, then await every owned resource on exit."""
     async with AsyncExitStack() as cleanup:
-        cleanup.push_async_callback(screen.stop)
+        cleanup.push_async_callback(screen.aclose)
         await _start_screen()
         if TRANSPORT == "ble":
             cleanup.push_async_callback(device.close)
@@ -166,6 +170,10 @@ class Point(BaseModel):
     y: float = Field(ge=0, le=1, allow_inf_nan=False)
 
 
+class Tap(Point):
+    precise: bool = False  # find the pointer on screen and correct a miss before tapping (about 1 s slower)
+
+
 class Swipe(BaseModel):
     x1: float = Field(ge=0, le=1, allow_inf_nan=False)
     y1: float = Field(ge=0, le=1, allow_inf_nan=False)
@@ -185,9 +193,10 @@ class KeyboardText(Text):
     text: str = Field(min_length=1, max_length=4000)
 
 
-def check_keyboard(text):
-    if not text.isascii() or any(ord(c) < 32 or ord(c) == 127 for c in text):
-        raise HTTPException(422, "keyboard input must be printable ASCII on one line")
+def check_keyboard(text, ascii_only=False):
+    """One line, no control characters. Non-ASCII text is fine for typing (it is pasted), never for keys."""
+    if (ascii_only and not text.isascii()) or any(unicodedata.category(c) in ("Cc", "Zl", "Zp") for c in text):
+        raise HTTPException(422, "keys must be printable ASCII" if ascii_only else "text must be one printable line")
 
 
 manual_lock = asyncio.Lock()
@@ -308,8 +317,8 @@ def step_shot(index: int):
 
 
 @app.post("/api/tap")
-async def tap(p: Point, request: Request):
-    return await act(lambda: phone.tap(p.x, p.y), request)
+async def tap(p: Tap, request: Request):
+    return await act(lambda: phone.tap(p.x, p.y, aim=True) if p.precise else phone.tap(p.x, p.y), request)
 
 
 @app.post("/api/swipe")
@@ -330,7 +339,7 @@ async def type_text(t: KeyboardText, request: Request):
 
 @app.post("/api/key")
 async def key(t: KeyboardText, request: Request):
-    check_keyboard(t.text)
+    check_keyboard(t.text, ascii_only=True)
     return await act(lambda: phone.key(t.text), request)
 
 
@@ -349,7 +358,11 @@ async def raw(t: Text, request: Request):
     """Debug only: send one protocol line to the board as-is."""
     if not DEBUG:
         raise HTTPException(404)
-    return await act(lambda: device.send(t.text), request)
+
+    async def send():
+        phone.forget_position()  # the server will not know where the pointer is, even if the board errs
+        await device.send(t.text)
+    return await act(send, request)
 
 
 @app.post("/api/calibrate/start")

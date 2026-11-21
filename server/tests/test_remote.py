@@ -19,10 +19,11 @@ def api(tmp_path, monkeypatch):
     class Phone:
         span = {"w": 400, "h": 800}
         calibrated = True
-        async def tap(self, x, y): calls.append(("tap", x, y))
+        async def tap(self, x, y, aim=False): calls.append(("tap", x, y, "aim") if aim else ("tap", x, y))
         async def type(self, text): calls.append(("type", text))
         async def key(self, text): calls.append(("key", text))
         async def start_calibration(self): return True
+        def forget_position(self): calls.append(("forget",))
         def finish_calibration(self, x, y): calls.append(("calibrate", x, y))
 
     class Agent:
@@ -130,13 +131,26 @@ def test_direct_action_and_agent_start_cannot_interleave(api, monkeypatch):
     asyncio.run(scenario())
 
 
+def test_precise_tap_finds_the_pointer_first(api):
+    module, calls = api
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=module.app), base_url="http://legacy") as client:
+            assert (await client.post("/api/tap", json={"x": .5, "y": .4, "precise": True})).status_code == 200
+            assert (await client.post("/api/tap", json={"x": .2, "y": .3})).status_code == 200
+
+    asyncio.run(scenario())
+    assert calls == [("tap", .5, .4, "aim"), ("tap", .2, .3)]
+
+
 @pytest.mark.parametrize("path,body", [
     ("/api/tap", {"x": 2, "y": .5}),
     ("/api/swipe", {"x1": 0, "y1": 0, "x2": -1, "y2": .5}),
     ("/api/scroll", {"x": .5, "y": .5, "lines": 101}),
     ("/api/type", {"text": "Calendar\nhome"}),
     ("/api/key", {"text": "enter\rhome"}),
-    ("/api/type", {"text": "你好"}),
+    ("/api/type", {"text": "你好\u2028世界"}),
+    ("/api/key", {"text": "cmd+你"}),
     ("/api/type", {"text": "\u007f"}),
     ("/api/calibrate/finish", {"x": 0, "y": .5}),
 ])
@@ -149,3 +163,49 @@ def test_invalid_remote_input_is_rejected_before_hid(api, path, body):
         assert not calls
 
     asyncio.run(scenario())
+
+
+def test_non_ascii_text_reaches_the_phone(api):
+    module, calls = api
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=module.app), base_url="http://legacy") as client:
+            assert (await client.post("/api/type", json={"text": "打开设置 ⚙️"})).status_code == 200
+
+    asyncio.run(scenario())
+    assert calls == [("type", "打开设置 ⚙️")]
+
+
+def test_raw_board_commands_make_the_pointer_position_unknown(api, monkeypatch):
+    module, calls = api
+    sent = []
+
+    async def send(line):
+        sent.append(line)
+    monkeypatch.setattr(module, "DEBUG", True)
+    monkeypatch.setattr(module, "device", type("D", (), {"send": staticmethod(send), "connected": True})())
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=module.app), base_url="http://legacy") as client:
+            assert (await client.post("/api/raw", json={"text": "move 40 0"})).status_code == 200
+
+    asyncio.run(scenario())
+    assert sent == ["move 40 0"] and calls == [("forget",)]
+
+
+def test_raw_board_commands_forget_the_pointer_even_when_the_board_errs(api, monkeypatch):
+    # the board may have moved the pointer before the reply timed out
+    from hidagent.device import DeviceError
+    module, calls = api
+
+    async def send(line):
+        raise DeviceError("board did not answer")
+    monkeypatch.setattr(module, "DEBUG", True)
+    monkeypatch.setattr(module, "device", type("D", (), {"send": staticmethod(send), "connected": True})())
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=module.app), base_url="http://legacy") as client:
+            assert (await client.post("/api/raw", json={"text": "move 40 0"})).status_code == 409
+
+    asyncio.run(scenario())
+    assert calls == [("forget",)]

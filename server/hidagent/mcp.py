@@ -30,10 +30,13 @@ def create_server(url: str | None = None):
             return Image(data=client.screenshot(), format="jpeg")
 
     @mcp.tool()
-    def iphone_tap(x: float, y: float) -> dict:
-        """Tap a visible target at image fractions 0–1; observe the screen afterward."""
+    def iphone_tap(x: float, y: float, precise: bool = False) -> dict:
+        """Tap a visible target at image fractions 0–1; observe the screen afterward.
+
+        precise=True finds the pointer on screen and corrects a miss before tapping (about 1 s slower):
+        use it for small or crowded targets, near screen edges, or after a tap missed."""
         with IPhoneClient(url) as client:
-            return client.action("tap", x=x, y=y)
+            return client.action("tap", x=x, y=y, precise=precise)
 
     @mcp.tool()
     def iphone_swipe(x1: float, y1: float, x2: float, y2: float) -> dict:
@@ -49,7 +52,14 @@ def create_server(url: str | None = None):
 
     @mcp.tool()
     def iphone_type(text: str) -> dict:
-        """Type printable ASCII into a visibly focused field, without submitting."""
+        """Type one line into a visibly focused field, without submitting.
+
+        Non-ASCII text (e.g. Chinese) is pasted through Universal Clipboard (the server's Mac and the
+        iPhone need the same Apple Account with Handoff on) and takes about 5 s. iOS may then ask
+        "Allow Paste": take a screenshot and tap Allow Paste. If Universal Clipboard did not deliver,
+        the phone pastes its own older clipboard instead, so check the field before submitting.
+        If the phone's keyboard is a Chinese input method, typed ASCII goes through it: switch to
+        an English keyboard first."""
         with IPhoneClient(url) as client:
             return client.action("type", text=text)
 
