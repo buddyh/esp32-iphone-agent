@@ -46,6 +46,25 @@ class CaptureTests(unittest.TestCase):
             Screen()._check_plugins()
         inspect.assert_not_called()
 
+    @unittest.skipIf(os.name == "nt", "Windows cannot count receiver connections, so it uses frame age")
+    def test_receiver_exiting_mid_check_is_not_live_instead_of_raising(self):
+        screen = Screen()
+        screen.frame = b"jpeg"
+
+        class Exiting:
+            pid = 12345
+
+            def poll(self):
+                screen._proc = None  # the supervisor clears it as UxPlay exits
+                return None
+
+        screen._proc = Exiting()
+        with patch("hidagent.screen.sys.platform", "linux"), patch("hidagent.screen.os.listdir", side_effect=OSError):
+            self.assertFalse(screen.live)
+        screen._proc, screen._clients_at = Exiting(), 0
+        with patch("hidagent.screen.sys.platform", "linux"), patch("hidagent.screen.os.listdir", side_effect=OSError):
+            self.assertFalse(screen.metadata["connection_verified"])
+
     @unittest.skipIf(os.name == "nt", "POSIX receiver: shebang script, SIGTERM and waitpid")
     def test_owned_receiver_is_killed_reaped_and_thread_joined(self):
         with tempfile.TemporaryDirectory() as temporary:

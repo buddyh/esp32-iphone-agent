@@ -312,12 +312,12 @@ class Screen:
                     except OSError:
                         pass  # UxPlay went away mid-frame
 
-    def _running(self) -> bool:
+    def _running(self, proc=None) -> bool:
         if self._stopping.is_set():
             return False
         if self.stream:
             return self._sock is not None
-        return self._proc is not None and self._proc.poll() is None
+        return proc is not None and proc.poll() is None
 
     def _countable(self) -> bool:
         """Whether this receiver's connections can be counted: our own UxPlay, on Linux or macOS."""
@@ -325,33 +325,35 @@ class Screen:
 
     @property
     def live(self) -> bool:
-        if not self._running() or self.frame is None:
+        proc = self._proc  # read once: the supervisor clears it when UxPlay exits
+        if not self._running(proc) or self.frame is None:
             return False
         if not self._countable():  # a followed receiver's process is not ours; Windows has no /proc or lsof
             return time.time() - self.updated < STILL_FOR
-        clients = self._clients()
+        clients = self._clients(proc)
         # A still phone can send no new frames. Require a receiver connection, not an arbitrary frame age.
         return clients is not None and clients > 0
 
     @property
     def metadata(self) -> dict:
         """Report capture age without claiming that a still frame proves connectivity."""
-        running = self._running()
-        clients = (self._clients() if running else 0) if self._countable() else None
+        proc = self._proc
+        running = self._running(proc)
+        clients = (self._clients(proc) if running else 0) if self._countable() else None
         age = max(0.0, time.monotonic() - self._updated_monotonic) if self.frame is not None else None
         return {"receiver_running": running, "frame_available": self.frame is not None,
                 "frame_age_seconds": round(age, 3) if age is not None else None,
                 "connection_verified": clients is not None, "connected_clients": clients,
                 "error": self.last_error or self._connection_error}
 
-    def _clients(self) -> int | None:
-        """Count this receiver's TCP connections; unknown inspection fails closed."""
+    def _clients(self, proc) -> int | None:
+        """Count `proc`'s TCP connections (a mirroring phone keeps some open); unknown inspection fails closed."""
         if time.monotonic() - self._clients_at < 1:
             return self._clients_n
         self._connection_error = None
         if sys.platform == "darwin":
             try:
-                result = subprocess.run(["/usr/sbin/lsof", "-nP", "-a", "-p", str(self._proc.pid),
+                result = subprocess.run(["/usr/sbin/lsof", "-nP", "-a", "-p", str(proc.pid),
                                          "-iTCP", "-sTCP:ESTABLISHED", "-F", "f"],
                                         capture_output=True, text=True, timeout=0.75, check=False)
                 if result.returncode not in (0, 1) or (result.returncode == 1 and result.stderr.strip()):
@@ -363,10 +365,10 @@ class Screen:
             self._clients_at, self._clients_n = time.monotonic(), n
             return n
         try:
-            fds = os.listdir(f"/proc/{self._proc.pid}/fd")
+            fds = os.listdir(f"/proc/{proc.pid}/fd")
             inodes = set()
             for fd in fds:
-                link = os.readlink(f"/proc/{self._proc.pid}/fd/{fd}")
+                link = os.readlink(f"/proc/{proc.pid}/fd/{fd}")
                 if link.startswith("socket:["):
                     inodes.add(link[8:-1])
             n = 0
