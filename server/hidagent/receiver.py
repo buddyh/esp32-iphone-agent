@@ -54,7 +54,10 @@ def main() -> None:
     screen = Screen(name, pidfile=data / "uxplay.pid")
     screen.start()
     log.info("AirPlay receiver '%s': frames on 127.0.0.1:%d", name, port)
-    serve(screen, port)
+    try:
+        serve(screen, port)
+    finally:
+        screen.stop()  # its supervisor would otherwise restart UxPlay and keep the process alive after Ctrl+C
 
 
 if __name__ == "__main__":
